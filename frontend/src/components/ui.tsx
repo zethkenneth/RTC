@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
-type Variant = "primary" | "secondary" | "danger" | "ghost";
+type Variant = "primary" | "court" | "secondary" | "danger" | "ghost";
 
 const variants: Record<Variant, string> = {
   primary: "bg-indigo-600 text-white hover:bg-indigo-500 disabled:bg-indigo-400",
+  court: "bg-blue-900 text-white hover:bg-blue-800 disabled:bg-blue-700",
   secondary:
     "border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800",
   danger: "bg-red-600 text-white hover:bg-red-500 disabled:bg-red-400",

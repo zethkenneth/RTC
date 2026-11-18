@@ -1,7 +1,7 @@
 import { supabase } from "../lib/supabase.js";
 import { fromPostgrest } from "../lib/errors.js";
 import type { PayrollBranch, PayrollPayee, PayrollPerson } from "./payrollDocx.js";
-import { coverage, type Quarter } from "./period.js";
+import { payFor, type PayrollPeriod } from "./period.js";
 
 type EmbeddedPosition = { position_name: string } | null;
 type PersonRow = {
@@ -14,6 +14,8 @@ type PersonRow = {
 type BranchRow = {
   id: number;
   branch_name: string;
+  signatory_one: number | null;
+  signatory_two: number | null;
   signatory_one_employee: PersonRow | null;
   signatory_two_employee: PersonRow | null;
 };
@@ -38,16 +40,41 @@ const toPerson = (r: PersonRow): PayrollPerson => ({
 // Natural order, so "Branch 67" comes before "Branch 151".
 const byName = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 
+// This branch always starts the payroll (page 1).
+const FIRST_BRANCH = "RTC-OCC";
+const isFirst = (b: BranchRow) => b.branch_name.trim().toUpperCase() === FIRST_BRANCH;
+
+/** Branches with no signatories at all are never grouped together. */
+const signatoryKey = (b: BranchRow) =>
+  b.signatory_one == null && b.signatory_two == null ? null : `${b.signatory_one ?? "-"}|${b.signatory_two ?? "-"}`;
+
+/**
+ * RTC-OCC first, then by name — except that branches with the same two
+ * signatories are pulled up right after the first of them, so they can share
+ * pages and one signatory footer (e.g. RTC-OCC and RTC-MAINTENANCE).
+ */
+function orderBranches(branches: BranchRow[]): BranchRow[] {
+  const sorted = [...branches].sort(
+    (a, b) => Number(isFirst(b)) - Number(isFirst(a)) || byName.compare(a.branch_name, b.branch_name),
+  );
+  const groups = new Map<string, BranchRow[]>(); // keeps first-seen order
+  for (const b of sorted) {
+    const key = signatoryKey(b) ?? `branch:${b.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), b]);
+  }
+  return [...groups.values()].flat();
+}
+
 /**
  * Loads branches (with signatories) and their on-payroll employees, with the
- * months and amount each employee is paid for the quarter. Employees not in
- * service during the quarter (hired after it, or retired before it) are left out.
+ * period and amount each employee is paid. Employees not in service during the
+ * period (hired after it, or retired before it) are left out.
  */
-export async function loadPayrollData(quarter: Quarter, branchIds?: number[]): Promise<PayrollBranch[]> {
+export async function loadPayrollData(period: PayrollPeriod, branchIds?: number[]): Promise<PayrollBranch[]> {
   let bq = supabase
     .from("branches")
     .select(
-      `id, branch_name,
+      `id, branch_name, signatory_one, signatory_two,
        signatory_one_employee:employees!signatory_one(${PERSON}),
        signatory_two_employee:employees!signatory_two(${PERSON})`,
     );
@@ -77,19 +104,18 @@ export async function loadPayrollData(quarter: Quarter, branchIds?: number[]): P
   const byBranch = new Map<number, PayrollPayee[]>();
   for (const e of employees) {
     // The retirement date only applies once the employee is marked retired.
-    const paid = coverage(quarter, e.date_hired, e.retired_flag ? e.date_retired : null);
+    const paid = payFor(period, e.date_hired, e.retired_flag ? e.date_retired : null);
     if (paid.months === 0) continue;
     const list = byBranch.get(e.branch_id) ?? [];
     list.push({ ...toPerson(e), ...paid });
     byBranch.set(e.branch_id, list);
   }
 
-  return branches
-    .sort((a, b) => byName.compare(a.branch_name, b.branch_name))
-    .map((b) => ({
-      branch_name: b.branch_name,
-      employees: byBranch.get(b.id) ?? [],
-      signatory_one: b.signatory_one_employee ? toPerson(b.signatory_one_employee) : null,
-      signatory_two: b.signatory_two_employee ? toPerson(b.signatory_two_employee) : null,
-    }));
+  return orderBranches(branches).map((b) => ({
+    branch_name: b.branch_name,
+    signatory_key: signatoryKey(b),
+    employees: byBranch.get(b.id) ?? [],
+    signatory_one: b.signatory_one_employee ? toPerson(b.signatory_one_employee) : null,
+    signatory_two: b.signatory_two_employee ? toPerson(b.signatory_two_employee) : null,
+  }));
 }

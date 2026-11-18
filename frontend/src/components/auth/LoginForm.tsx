@@ -64,7 +64,7 @@ export function LoginForm() {
         </Link>
       </div>
       {error && <Alert>{error}</Alert>}
-      <Button type="submit" disabled={busy} className="w-full">
+      <Button type="submit" variant="court" disabled={busy} className="w-full">
         {busy ? "Logging in…" : "Log in"}
       </Button>
     </form>

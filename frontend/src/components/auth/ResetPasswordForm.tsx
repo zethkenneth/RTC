@@ -131,7 +131,7 @@ export function ResetPasswordForm() {
       </Field>
       <p className="text-xs text-zinc-500">At least 8 characters.</p>
       {error && <Alert>{error}</Alert>}
-      <Button type="submit" disabled={busy} className="w-full">
+      <Button type="submit" variant="court" disabled={busy} className="w-full">
         {busy ? "Saving…" : "Update password"}
       </Button>
     </form>

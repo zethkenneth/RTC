@@ -83,8 +83,10 @@ export const api = {
 };
 
 export interface PayrollReportInput {
+  period_type?: "quarter" | "cash_gift";
   year: number;
-  quarter: 1 | 2 | 3 | 4; // 3 = July to September
+  quarter?: 1 | 2 | 3 | 4; // 3 = July to September; needed for period_type "quarter"
+  cash_gift_amount?: number; // pesos per employee; needed for period_type "cash_gift"
   treasurer: string;
   checked_by_name: string;
   checked_by_title: string;

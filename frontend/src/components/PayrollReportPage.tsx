@@ -7,7 +7,8 @@ import { useList } from "@/lib/useList";
 import type { Branch, Employee } from "@/lib/types";
 import { Alert, Button, card, Field, inputClass, PageHeader } from "./ui";
 
-type Settings = Required<Omit<PayrollReportInput, "branch_ids">>;
+// The amount stays as typed text so the field can be empty.
+type Settings = Required<Omit<PayrollReportInput, "branch_ids" | "cash_gift_amount">> & { cash_gift_amount: string };
 type Quarter = Settings["quarter"];
 
 const QUARTERS: { value: Quarter; label: string }[] = [
@@ -22,8 +23,10 @@ const thisQuarter = (Math.floor(today.getMonth() / 3) + 1) as Quarter;
 
 // Defaults copied from "List of RTC PJs, Officials and Personnel.docx".
 const DEFAULTS: Settings = {
+  period_type: "quarter",
   year: today.getFullYear(),
   quarter: thisQuarter,
+  cash_gift_amount: "",
   treasurer: "MARITA A. CALAJE",
   checked_by_name: "Atty. ROSALIE C. AROSA",
   checked_by_title: "Clerk of Court VII",
@@ -80,6 +83,14 @@ export function PayrollReportPage() {
 
   const [selectAll, setSelectAll] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const isCashGift = form.period_type === "cash_gift";
+  const setPeriod = (value: string) =>
+    setEdited(
+      value === "cash_gift"
+        ? { ...form, period_type: "cash_gift" }
+        : { ...form, period_type: "quarter", quarter: Number(value) as Quarter },
+    );
+
   const toggle = (id: number) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -105,8 +116,10 @@ export function PayrollReportPage() {
     setDone(null);
     try {
       save(form);
+      const { quarter, cash_gift_amount, ...common } = form;
       const filename = await downloadPayrollReport({
-        ...form,
+        ...common,
+        ...(isCashGift ? { cash_gift_amount: Number(cash_gift_amount) } : { quarter }),
         branch_ids: selectAll ? undefined : [...selected],
       });
       setDone(filename);
@@ -134,9 +147,10 @@ export function PayrollReportPage() {
         Generates the Pasig City Payroll as a Word file, one section per branch, using the same layout as
         &ldquo;List of RTC PJs, Officials and Personnel.docx&rdquo;. Only employees marked{" "}
         <strong>Include in payroll</strong> are listed
-        {!onPayroll.loading && !onPayroll.error && <> (currently {onPayroll.meta.total})</>}. Each employee is paid
-        ₱1,000 for every month of the quarter they were in service, counted from their hire month to their
-        retirement month. Each branch&apos;s footer uses its two signatories.
+        {!onPayroll.loading && !onPayroll.error && <> (currently {onPayroll.meta.total})</>}. For a quarter, each
+        employee is paid ₱1,000 for every month they were in service, counted from their hire month to their
+        retirement month. For a Cash Gift, each employee in service in December receives the amount you enter;
+        anyone who retired before December is left out. Each branch&apos;s footer uses its two signatories.
       </p>
 
       <form onSubmit={submit} className="grid gap-6 lg:grid-cols-2">
@@ -144,12 +158,18 @@ export function PayrollReportPage() {
           <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">Document details</h2>
           <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
             <Field label="Period covered (quarter)" error={fe("quarter")}>
-              <select required value={form.quarter} onChange={set("quarter")} className={inputClass}>
+              <select
+                required
+                value={isCashGift ? "cash_gift" : form.quarter}
+                onChange={(e) => setPeriod(e.target.value)}
+                className={inputClass}
+              >
                 {QUARTERS.map((q) => (
                   <option key={q.value} value={q.value}>
                     {q.label}
                   </option>
                 ))}
+                <option value="cash_gift">Cash Gift</option>
               </select>
             </Field>
             <Field label="Year" error={fe("year")}>
@@ -164,9 +184,29 @@ export function PayrollReportPage() {
               />
             </Field>
           </div>
+          {isCashGift && (
+            <Field label="Cash gift per employee (₱)" error={fe("cash_gift_amount")}>
+              <input
+                type="number"
+                required
+                min={0.01}
+                max={1000000}
+                step={0.01}
+                value={form.cash_gift_amount}
+                onChange={set("cash_gift_amount")}
+                className={`${inputClass} max-w-40`}
+              />
+            </Field>
+          )}
           <p className="-mt-2 text-xs text-zinc-500">
-            Each row shows the months that employee is paid for, e.g. &ldquo;August-September {form.year}&rdquo;
-            for someone hired in August.
+            {isCashGift ? (
+              <>Each row shows &ldquo;Cash Gift {form.year}&rdquo;.</>
+            ) : (
+              <>
+                Each row shows the months that employee is paid for, e.g. &ldquo;August-September {form.year}{" "}
+                (appointed as of August {form.year})&rdquo; for someone hired in August.
+              </>
+            )}
           </p>
           <Field label="City Treasurer" error={fe("treasurer")}>
             <input required maxLength={100} value={form.treasurer} onChange={set("treasurer")} className={inputClass} />

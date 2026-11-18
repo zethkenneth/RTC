@@ -112,7 +112,9 @@ All `/api/branches`, `/api/positions` and `/api/employees` routes require a logg
 ```jsonc
 {
   "year": 2026,
-  "quarter": 3,                                  // 1–4; 3 = July to September
+  "period_type": "quarter",                      // optional: "quarter" (default) or "cash_gift"
+  "quarter": 3,                                  // 1–4; 3 = July to September; required for "quarter"
+  "cash_gift_amount": 5000,                      // pesos per employee; required for "cash_gift"
   "treasurer": "MARITA A. CALAJE",
   "checked_by_name": "Atty. ROSALIE C. AROSA",
   "checked_by_title": "Clerk of Court VII",
@@ -130,6 +132,11 @@ All `/api/branches`, `/api/positions` and `/api/employees` routes require a logg
   `date_retired` (both months included; the retirement date only counts when `retired_flag` is true).
   E.g. Q3 2026: hired August → August-September 2026, ₱2,000; retired July → July 2026, ₱1,000.
   Employees with no months in the quarter are left out. The PERIOD COVERED cell shows each employee's months.
+- A hire or retirement month inside the quarter adds a note, e.g.
+  `August-September 2026 (appointed as of August 2026)` or `July 2026 (retired as of July 2026)`.
+- TOTAL AMOUNT RECEIVED repeats TOTAL AMOUNT on every row and total row.
+- Cash Gift (`period_type: "cash_gift"`): every on-payroll employee in service in December of `year`
+  receives `cash_gift_amount`. Anyone who retired before December is left out. The header and each row show `Cash Gift 2026`.
 - Numbering: a running number across the whole document, plus a number within each branch.
 - Each page's table ends with an empty row and a PAGE TOTAL row; long branches continue on the next page.
   The document's last page also has a GRAND TOTAL row (all branches in the report).

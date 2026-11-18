@@ -1,6 +1,7 @@
 // Builds the "Pasig City Payroll" Word document, copying the layout of
-// "List of RTC PJs, Officials and Personnel.docx": one section per branch,
-// column headings in the page header, branch signatories in the section footer.
+// "List of RTC PJs, Officials and Personnel.docx": one section per branch (or
+// per run of branches sharing signatories), column headings in the page header,
+// branch signatories in the section footer.
 import {
   AlignmentType,
   BorderStyle,
@@ -35,12 +36,16 @@ export interface PayrollPerson {
 /** An employee on the payroll, with what they're paid for the quarter. */
 export interface PayrollPayee extends PayrollPerson {
   months: number;
-  period: string; // months covered, e.g. "August-September 2026"
+  period: string; // e.g. "August-September 2026" or "Cash Gift 2026"
+  note: string; // e.g. "(appointed as of August 2026)"; may be empty
   amount: number; // pesos
 }
 
 export interface PayrollBranch {
   branch_name: string;
+  // Same key = same two signatories. Consecutive branches with the same key
+  // share pages and one footer; null = never grouped.
+  signatory_key: string | null;
   employees: PayrollPayee[]; // only employees paid this quarter, in display order
   signatory_one: PayrollPerson | null;
   signatory_two: PayrollPerson | null;
@@ -53,7 +58,8 @@ export interface Signer {
 }
 
 export interface PayrollOptions {
-  periodCovered: string; // "July to September 2026" (page header)
+  periodCovered: string; // "July to September 2026" or "Cash Gift 2026" (page header)
+  purpose: string; // "MONTHLY ALLOWANCE" or "CASH GIFT"
   treasurer: string; // "MARITA A. CALAJE"
   checkedBy: Signer;
   notedBy: Signer;
@@ -66,7 +72,8 @@ const FONT = "Times New Roman";
 const PAGE = { width: 12242, height: 18722 }; // 8.5" x 13", used in landscape
 const MARGIN = { top: 432, right: 720, bottom: 432, left: 720, header: 706, footer: 706 };
 // NO. | NO. per branch | NAME | POSITION | DEPARTMENT | PERIOD | TOTAL | RECEIVED | NO. | SIGNATURE
-const COLS = [625, 630, 2970, 2250, 1710, 3780, 1080, 1170, 630, 2340];
+// The two amount columns are wider than the source so totals of 1,000,000.00 or more stay on one line.
+const COLS = [625, 630, 2970, 2250, 1710, 3780, 1260, 1260, 630, 2070];
 const FOOTER_COLS = [4950, 1080, 3330, 810, 1980, 1080, 4042];
 const ROW_HEIGHT = 288;
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
@@ -178,7 +185,7 @@ function buildHeader(o: PayrollOptions) {
         ],
         AlignmentType.CENTER,
       ),
-      para([run("MONTHLY ALLOWANCE TO NATIONAL GOVERNMENT EMPLOYEE ASSIGNED IN THE CITY OF PASIG", 8)]),
+      para([run(`${o.purpose} TO NATIONAL GOVERNMENT EMPLOYEE ASSIGNED IN THE CITY OF PASIG`, 8)]),
       new Table({
         width: { size: sum(COLS), type: WidthType.DXA },
         columnWidths: COLS,
@@ -261,6 +268,7 @@ function buildFooter(branch: PayrollBranch, o: PayrollOptions) {
 // ---- Branch body -------------------------------------------------------------
 
 interface NumberedRow {
+  branchName: string;
   overall: number; // running number across the whole document
   inBranch: number; // number within the branch
   person: PayrollPayee;
@@ -270,10 +278,17 @@ function bodyRow(cells: TableCell[]) {
   return new TableRow({ height: { value: ROW_HEIGHT, rule: HeightRule.ATLEAST }, children: cells });
 }
 
-/** One page of a branch. The document's last page also gets the GRAND TOTAL row. */
-function branchTable(branchName: string, rows: NumberedRow[], grandTotal?: number) {
+/**
+ * One page of payees, from one branch or several branches that share
+ * signatories. The document's last page also gets the GRAND TOTAL row.
+ */
+function pageTable(rows: NumberedRow[], grandTotal?: number) {
   type Align = (typeof AlignmentType)[keyof typeof AlignmentType];
   const text = (s: string, align: Align = AlignmentType.LEFT, bold = false) => [para([run(s, 10, { bold })], align)];
+
+  // A row with a note uses smaller type so it stays on one line and the page count holds.
+  const periodCell = (p: PayrollPayee) =>
+    p.note ? [para([run(`${p.period} ${p.note}`, 8)])] : text(p.period);
 
   const dataRows = rows.map((r, i) =>
     bodyRow([
@@ -281,27 +296,27 @@ function branchTable(branchName: string, rows: NumberedRow[], grandTotal?: numbe
       cell(COLS[1], text(String(r.inBranch), AlignmentType.CENTER)),
       cell(COLS[2], text(listName(r.person))),
       cell(COLS[3], text(r.person.position_name ?? "")),
-      // The department name is written once and merged down the page's rows.
-      i === 0
-        ? cell(COLS[4], text(branchName, AlignmentType.CENTER), { vMerge: "restart" })
+      // The department name is written once and merged down that branch's rows on the page.
+      i === 0 || rows[i - 1].branchName !== r.branchName
+        ? cell(COLS[4], text(r.branchName, AlignmentType.CENTER), { vMerge: "restart" })
         : cell(COLS[4], [], { vMerge: "continue" }),
-      cell(COLS[5], text(r.person.period)),
+      cell(COLS[5], periodCell(r.person)),
       cell(COLS[6], text(money(r.person.amount), AlignmentType.RIGHT)),
-      cell(COLS[7], []),
+      cell(COLS[7], text(money(r.person.amount), AlignmentType.RIGHT)),
       cell(COLS[8], text(String(r.overall), AlignmentType.CENTER)),
       cell(COLS[9], []),
     ]),
   );
 
   const empty = () => COLS.map((w) => cell(w, []));
-  // Label under PERIOD COVERED, amount under TOTAL AMOUNT.
+  // Label under PERIOD COVERED, amount under TOTAL AMOUNT and TOTAL AMOUNT RECEIVED.
   const totalRow = (label: string, amount: number) =>
     bodyRow(
       COLS.map((w, i) =>
         i === 5
           ? cell(w, text(label, AlignmentType.RIGHT, true))
-          : i === 6
-            ? cell(w, text(money(amount), AlignmentType.RIGHT, true))
+          : i === 6 || i === 7
+            ? cell(w, [para([run(money(amount), 9, { bold: true })], AlignmentType.RIGHT)])
             : cell(w, []),
       ),
     );
@@ -332,19 +347,31 @@ export async function buildPayrollDocx(branches: PayrollBranch[], o: PayrollOpti
   const grandTotal = paid.reduce((t, b) => t + b.employees.reduce((u, e) => u + e.amount, 0), 0);
   let overall = 0;
 
-  const sections: ISectionOptions[] = paid.map((b, bi) => {
-      const numbered: NumberedRow[] = b.employees.map((person, i) => ({
-        overall: ++overall,
-        inBranch: i + 1,
-        person,
-      }));
+  // Consecutive branches with the same signatories form one section: their
+  // payees run on together across pages, under one signatory footer.
+  const groups: PayrollBranch[][] = [];
+  for (const b of paid) {
+    const last = groups.at(-1);
+    if (last && b.signatory_key !== null && last[0].signatory_key === b.signatory_key) last.push(b);
+    else groups.push([b]);
+  }
+
+  const sections: ISectionOptions[] = groups.map((group, gi) => {
+      const numbered: NumberedRow[] = group.flatMap((b) =>
+        b.employees.map((person, i) => ({
+          branchName: b.branch_name,
+          overall: ++overall,
+          inBranch: i + 1,
+          person,
+        })),
+      );
 
       // One table per page, each ending in its own PAGE TOTAL row.
       const pages = chunk(numbered, o.rowsPerPage);
-      const isLastBranch = bi === paid.length - 1;
+      const isLastGroup = gi === groups.length - 1;
       const children = pages.flatMap((rows, i) => [
         ...(i > 0 ? [new Paragraph({ pageBreakBefore: true, spacing: { after: 0 }, children: [run("", 1)] })] : []),
-        branchTable(b.branch_name, rows, isLastBranch && i === pages.length - 1 ? grandTotal : undefined),
+        pageTable(rows, isLastGroup && i === pages.length - 1 ? grandTotal : undefined),
       ]);
       // Word expects a paragraph after a table at the end of a section.
       children.push(new Paragraph({ spacing: { after: 0 }, children: [run("", 1)] }));
@@ -357,7 +384,7 @@ export async function buildPayrollDocx(branches: PayrollBranch[], o: PayrollOpti
           },
         },
         headers: { default: header },
-        footers: { default: buildFooter(b, o) },
+        footers: { default: buildFooter(group[0], o) },
         children,
       };
     });

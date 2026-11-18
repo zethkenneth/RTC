@@ -77,7 +77,7 @@ export function ForgotPasswordForm() {
         />
       </Field>
       {error && <Alert>{error}</Alert>}
-      <Button type="submit" disabled={busy} className="w-full">
+      <Button type="submit" variant="court" disabled={busy} className="w-full">
         {busy ? "Sending…" : "Send reset link"}
       </Button>
       <div className="text-center">{backToLogin}</div>
