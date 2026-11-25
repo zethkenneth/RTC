@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
-import { ApiError, downloadPayrollReport, type PayrollReportInput } from "@/lib/api";
+import { ApiError, generatePayrollReport, saveFile, type PayrollFile, type PayrollReportInput } from "@/lib/api";
 import { useList } from "@/lib/useList";
 import type { Branch, Employee } from "@/lib/types";
+import { PayrollPreview } from "./PayrollPreview";
 import { Alert, Button, card, Field, inputClass, PageHeader } from "./ui";
 
 // The amount stays as typed text so the field can be empty.
@@ -103,6 +104,14 @@ export function PayrollReportPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [done, setDone] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PayrollFile | null>(null);
+
+  const download = () => {
+    if (!preview) return;
+    saveFile(preview);
+    setDone(preview.filename);
+    setPreview(null);
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -117,12 +126,12 @@ export function PayrollReportPage() {
     try {
       save(form);
       const { quarter, cash_gift_amount, ...common } = form;
-      const filename = await downloadPayrollReport({
+      const file = await generatePayrollReport({
         ...common,
         ...(isCashGift ? { cash_gift_amount: Number(cash_gift_amount) } : { quarter }),
         branch_ids: selectAll ? undefined : [...selected],
       });
-      setDone(filename);
+      setPreview(file);
     } catch (err) {
       if (err instanceof ApiError) {
         setFieldErrors(err.fieldErrors ?? {});
@@ -304,11 +313,13 @@ export function PayrollReportPage() {
               </div>
             )}
             <Button type="submit" disabled={busy} className="w-full">
-              {busy ? "Generating…" : "Generate Word file (.docx)"}
+              {busy ? "Generating preview…" : "Preview payroll"}
             </Button>
           </div>
         </section>
       </form>
+
+      {preview && <PayrollPreview file={preview} onClose={() => setPreview(null)} onDownload={download} />}
     </>
   );
 }

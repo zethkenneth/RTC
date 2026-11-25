@@ -97,8 +97,13 @@ export interface PayrollReportInput {
   rows_per_page?: number;
 }
 
-/** Generates the payroll .docx on the server and starts a browser download. */
-export async function downloadPayrollReport(input: PayrollReportInput) {
+export interface PayrollFile {
+  blob: Blob;
+  filename: string;
+}
+
+/** Generates the payroll .docx on the server and returns it, ready to preview or save. */
+export async function generatePayrollReport(input: PayrollReportInput): Promise<PayrollFile> {
   let res: Response;
   try {
     res = await fetch(`${BASE_URL}/reports/payroll`, {
@@ -126,7 +131,11 @@ export async function downloadPayrollReport(input: PayrollReportInput) {
 
   const blob = await res.blob();
   const match = res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/);
-  const filename = match?.[1] ?? "Pasig City Payroll.docx";
+  return { blob, filename: match?.[1] ?? "Pasig City Payroll.docx" };
+}
+
+/** Starts a browser download of a file already in memory. */
+export function saveFile({ blob, filename }: PayrollFile) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -135,7 +144,6 @@ export async function downloadPayrollReport(input: PayrollReportInput) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return filename;
 }
 
 export const authApi = {
